@@ -2,45 +2,55 @@ pipeline {
     agent {
         label 'general'
     }
-    
+
     triggers {
-        githubPush()   // trigger the pipeline upon push event in github
+        githubPush()   // trigger the pipeline upon push event in GitHub
     }
-    
-    environment {        
-        IMAGE_TAG = "v1.0.$BUILD_NUMBER"
+
+    environment {
         IMAGE_BASE_NAME = "netflix-images-frontend"
-        
+        IMAGE_TAG = "v1.0.$BUILD_NUMBER"
         DOCKER_CREDS = credentials('dockerhub')
-        DOCKER_USERNAME = "${DOCKER_CREDS_USR}"  // The _USR suffix added to access the username value 
-        DOCKER_PASS = "${DOCKER_CREDS_PSW}"      // The _PSW suffix added to access the password value
-    } 
+    }
 
     stages {
         stage('Docker setup') {
-            steps {             
-                sh '''
-                  docker login -u $DOCKER_USERNAME -p $DOCKER_PASS
-                '''
+            steps {
+                script {
+                    // Use script block to access environment variables and handle Docker login
+                    sh '''
+                      docker login -u $DOCKER_CREDS_USR -p $DOCKER_CREDS_PSW
+                    '''
+                }
             }
         }
-        
+
         stage('Build & Push') {
-            steps {             
-                sh '''
-                  IMAGE_FULL_NAME=$DOCKER_USERNAME/$IMAGE_BASE_NAME:$IMAGE_TAG
-                
-                  docker build -t $IMAGE_FULL_NAME .
-                  docker push $IMAGE_FULL_NAME
-                '''
+            steps {
+                script {
+                    // Define IMAGE_FULL_NAME and use it within script block
+                    def imageFullName = "${DOCKER_CREDS_USR}/${IMAGE_BASE_NAME}:${IMAGE_TAG}"
+
+                    sh """
+                      docker build -t $imageFullName .
+                      docker push $imageFullName
+                    """
+
+                    // Pass the imageFullName variable to the next stage
+                    env.IMAGE_FULL_NAME = imageFullName
+                }
             }
         }
+
         stage('Trigger Deploy') {
             steps {
-                build job: 'frontend-deploy', wait: false, parameters: [
-                    string(name: 'SERVICE_NAME', value: "frontend-deployment.yaml"),
-                    string(name: 'IMAGE_FULL_NAME_PARAM', value: $IMAGE_FULL_NAME)
-                ]
+                script {
+                    // Use the IMAGE_FULL_NAME environment variable in the build step
+                    build job: 'frontend-deploy', wait: false, parameters: [
+                        string(name: 'SERVICE_NAME', value: "frontend-deployment.yaml"),
+                        string(name: 'IMAGE_FULL_NAME_PARAM', value: env.IMAGE_FULL_NAME)
+                    ]
+                }
             }
         }
     }
